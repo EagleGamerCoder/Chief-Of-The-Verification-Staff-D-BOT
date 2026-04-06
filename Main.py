@@ -510,6 +510,8 @@ class C_Bot(commands.Bot):
         global http_session
         if http_session is None:
             http_session = aiohttp.ClientSession()
+        
+        self.add_view(VerifyView())
 
     async def on_ready(self):
         await self.tree.sync()
@@ -549,14 +551,21 @@ class VerifyView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
+    async def interaction_safe(self, interaction: discord.Interaction):
+        """Helper to defer if needed to prevent timeout"""
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+
     @discord.ui.button(label="Start Verification", style=discord.ButtonStyle.blurple)
     async def start(self, interaction : discord.Interaction, button : discord.ui.Button):
         
+        await self.interaction_safe(interaction)
+
         # Get the server rules ids -> message id & channel id
         ids = get_server_rules_ids(interaction.guild.id)
 
         if ids is None:
-            await interaction.response.send_message("❌ Rules not set up in this server.", ephemeral=True)
+            await interaction.followup.send("❌ Rules not set up in this server.", ephemeral=True)
             return
 
         channel_id, message_id = ids
@@ -564,13 +573,13 @@ class VerifyView(discord.ui.View):
         channel = interaction.guild.get_channel(channel_id)
 
         if channel is None:
-            await interaction.response.send_message("❌ Rules channel not found.", ephemeral=True)
+            await interaction.followup.send("❌ Rules channel not found.", ephemeral=True)
             return
 
         try:
             message = await channel.fetch_message(message_id)
         except discord.NotFound:
-            await interaction.response.send_message("❌ Rules message not found.", ephemeral=True)
+            await interaction.followup.send("❌ Rules message not found.", ephemeral=True)
             return
 
         # Check reactions
@@ -585,18 +594,20 @@ class VerifyView(discord.ui.View):
 
         # If user has NOT reacted
         if not has_accepted:
-            await interaction.response.send_message("You must accept the rules first by reacting with '✅' in the rules channel.",ephemeral=True)
+            await interaction.followup.send("You must accept the rules first by reacting with '✅' in the rules channel.",ephemeral=True)
             return
 
         await interaction.response.send_modal(UsernameModal())
 
     @discord.ui.button(label="Complete Verification", style=discord.ButtonStyle.green)
     async def complete(self, interaction : discord.Interaction, button : discord.ui.Button):
+        
+        await self.interaction_safe(interaction)
 
         data = get_pending(interaction.user.id)
 
         if not data:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Start Verification first.", 
                 ephemeral=True,
             )
@@ -606,7 +617,7 @@ class VerifyView(discord.ui.View):
         description = await get_profile_description(roblox_id)
 
         if code not in description:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Code not in bio.",
                 ephemeral=True,
             )
@@ -614,7 +625,7 @@ class VerifyView(discord.ui.View):
         
         config = get_guild_config(interaction.guild.id)
         if not config:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Server not configured.", 
                 ephemeral=True,
             )
@@ -626,7 +637,7 @@ class VerifyView(discord.ui.View):
 
         rank = await get_group_rank(roblox_id, group_id)
         if rank <= 0:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Not in Roblox group.", 
                 ephemeral=True,
             )
@@ -637,7 +648,6 @@ class VerifyView(discord.ui.View):
             await sync_discord_roles(interaction.user, interaction, int(group_id), int(sub_one), int(sub_two), int(sub_three))
 
         except Exception as e:
-            await interaction.response.defer()
             await interaction.followup.send(
                 f"An error occurred while updating your roles: {e}"
             )
@@ -647,7 +657,7 @@ class VerifyView(discord.ui.View):
         await interaction.user.add_roles(role) # Adds the verified role
         delete_pending(interaction.user.id)
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "✅ Verified!", 
             ephemeral=True,
         )
@@ -655,9 +665,11 @@ class VerifyView(discord.ui.View):
     @discord.ui.button(label="Update", style=discord.ButtonStyle.green)
     async def update(self, interaction : discord.Interaction, button : discord.ui.Button):
         
+        await self.interaction_safe(interaction)
+
         data = get_roblox_id_db(interaction.user.id)
         if data is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Your account is not verified.", 
                 ephemeral=True,
             )
@@ -665,7 +677,7 @@ class VerifyView(discord.ui.View):
 
         config = get_guild_config(interaction.guild.id)
         if not config:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Server not configured.", 
                 ephemeral=True,
             )
@@ -679,7 +691,6 @@ class VerifyView(discord.ui.View):
             await sync_discord_roles(interaction.user, interaction, int(group_id), int(sub_one), int(sub_two), int(sub_three))
 
         except Exception as e:
-            await interaction.response.defer()
             await interaction.followup.send(
                 f"An error occurred while updating your roles: {e}"
             )
