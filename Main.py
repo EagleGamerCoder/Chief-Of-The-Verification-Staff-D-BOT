@@ -28,7 +28,7 @@ keep_alive()
 
 print("[SETUP] Loading .env variables...")
 
-# Load Environmental Variables
+# Load Environmental Variables 
 load_dotenv()
 
 # Get .Env Variables
