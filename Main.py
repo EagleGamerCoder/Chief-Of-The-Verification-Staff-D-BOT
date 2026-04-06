@@ -13,6 +13,8 @@ from discord import app_commands
 from discord.ext import commands
 import logging
 from dotenv import load_dotenv
+from threading import Thread
+from flask import Flask
 import os
 import sqlite3
 import aiohttp
@@ -20,9 +22,6 @@ import random
 import string
 import re
 import asyncio
-
-from Ping import keep_alive
-keep_alive()
 
 # ------------------------------ .ENV ------------------------------
 
@@ -35,6 +34,25 @@ load_dotenv()
 discord_token = os.getenv('DISCORD_TOKEN')
 
 print(f"[SETUP] Loaded.")
+
+# ------------------------------ FLASK KEEP ALIVE ------------------------------
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is alive! v2"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.start()
+
+# Start the keep-alive server
+keep_alive()
 
 # ------------------------------ LOGGING ------------------------------
 
