@@ -644,7 +644,7 @@ class CompleteVerificationButton(discord.ui.Button):
         delete_pending(interaction.user.id)
         await interaction.response.send_message("✅ Verified!", ephemeral=True)
 
-class UpdateButton(discord.ui.button):
+class UpdateButton(discord.ui.Button):
     def __init__(self):
         super().__init(
             label="Update",
