@@ -711,6 +711,6 @@ async def close_session():
 
 init_database()
 try:
-    Bot.run(discord_token, log_handler=handler, log_level=logging.DEBUG)
+    Bot.run(discord_token, reconnect=True, log_handler=handler, log_level=logging.DEBUG)
 finally:
     asyncio.run(close_session())
