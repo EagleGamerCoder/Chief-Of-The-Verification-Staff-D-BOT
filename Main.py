@@ -222,11 +222,11 @@ def get_server_rules_ids(guild_id):
 # ------------------------------ ROBLOX API HANDLING ------------------------------
 
 # Generates a six digit code
-def generate_code_six():
+def generate_code_six() -> int:
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
 # Get the roblox id of a user using their username
-async def get_roblox_id(username):
+async def get_roblox_id(username) -> int:
     async with aiohttp.ClientSession() as session:
         async with session.post(
             "https://users.roblox.com/v1/usernames/users",
@@ -245,7 +245,7 @@ async def get_profile_description(user_id):
             return data.get("description", "")
         
 # Get the group rank of a user using their roblox user id and group id
-async def get_group_rank(user_id, group_id):
+async def get_group_rank(user_id, group_id) -> str:
     async with aiohttp.ClientSession() as session:
         async with session.get(f"https://groups.roblox.com/v2/users/{user_id}/groups/roles") as response:
             data = await response.json()
@@ -254,6 +254,12 @@ async def get_group_rank(user_id, group_id):
                 if group["group"]["id"] == group_id:
                     return group["role"]["rank"]
     return 0
+
+async def get_roblox_username(roblox_user_id : int) -> str:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"https://https://users.roblox.com/v1/users/{roblox_user_id}") as response:
+            data = await response.json()
+            return data.get("name", "Unknown")
 
 async def fetch_group_data(group_id):
     async with aiohttp.ClientSession() as session:
@@ -317,7 +323,9 @@ async def set_prefix_nickname(member, role_name: str):
                 prefix = ""
 
         try:
-            await member.edit(nick=f"{prefix} {member.name}")
+            rblx_id = await get_roblox_id_db(member.id)
+            rblx_username = get_roblox_username(rblx_id)
+            await member.edit(nick=f"{prefix} {rblx_username}")
         except discord.Forbidden:
             print("Missing permissions or role hierarchy prevents change")
         except discord.HTTPException as e:
