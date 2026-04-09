@@ -713,7 +713,7 @@ def create_server_rules_embed():
 @Bot.tree.command(name="setup-config", description="Sets up the config for the Bot (Use /setup_embed first).")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_config(interaction : discord.Interaction, role : discord.Role,  group_id : int, sub_group_id_one : int, sub_group_id_two : int, sub_group_id_three : int):
-    interaction.response.defer()
+    await interaction.response.defer()
 
     server_rules_ids = get_server_rules_ids(interaction.guild.id)
     if not server_rules_ids:
@@ -731,7 +731,7 @@ async def setup_config(interaction : discord.Interaction, role : discord.Role,  
 @Bot.tree.command(name="setup-embeds", description="Sets up the Server rules embed and the verification emded (Use in #Verification).")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_embeds(interaction : discord.Interaction, server_rules_channel_id : str):
-    interaction.response.defer()
+    await interaction.response.defer()
     
     # Server Rules
     try:
