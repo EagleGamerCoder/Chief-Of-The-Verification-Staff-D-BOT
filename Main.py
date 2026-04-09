@@ -742,30 +742,42 @@ async def setup_config(interaction : discord.Interaction, role : discord.Role,  
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_embeds(interaction : discord.Interaction, server_rules_channel_id : str):
     await interaction.response.defer()
-    
-    # Server Rules
+
+    # Validate channel
     try:
         server_rules_channel = interaction.guild.get_channel(int(server_rules_channel_id))
+        if server_rules_channel is None:
+            await interaction.followup.send("❌ Invalid channel ID.", ephemeral=True)
+            return
+    except:
+        await interaction.followup.send("❌ Invalid channel ID format.", ephemeral=True)
+        return
+
+    # Send rules embed
+    try:
+        await server_rules_channel.send("# __**Server Rules:**__")
+        msg = await server_rules_channel.send(embed=create_server_rules_embed())
+        await msg.add_reaction('✅')
     except Exception as e:
-        interaction.followup.send(f"The server ID is invalid, ID: {e}")
+        await interaction.followup.send(f"❌ Failed to send rules embed: {e}", ephemeral=True)
+        return
 
-    await server_rules_channel.send("# __**Server Rules:**__")
-    msg = await server_rules_channel.send(embed=create_server_rules_embed())
-    await msg.add_reaction('✅') # Add a check mark reaction for acknowledgment
-    server_rules_message_id = msg.id
-    save_server_rules_ids(interaction.guild.id, int(server_rules_channel_id), server_rules_message_id)
-    
-    # Verification
-    await interaction.channel.send("# __**Welcome to the Calderian Army Discord Server!**__")
-    await interaction.channel.send(
-        embed=create_verification_embed(),
-        view=VerifyView()
-    ) 
+    # Save message ID
+    save_server_rules_ids(interaction.guild.id, int(server_rules_channel_id), msg.id)
 
-    await interaction.followup.send(
-        "✅ Setup complete.", 
-        ephemeral=True,
-    )
+    # Send verification embed
+    try:
+        await interaction.channel.send("# __**Welcome to the Calderian Army Discord Server!**__")
+        await interaction.channel.send(
+            embed=create_verification_embed(),
+            view=VerifyView()
+        )
+    except Exception as e:
+        await interaction.followup.send(f"❌ Failed to send verification embed: {e}", ephemeral=True)
+        return
+
+    # Final response
+    await interaction.followup.send("✅ Setup complete.", ephemeral=True)
 
 # ------------------------------ MAIN ------------------------------
 
