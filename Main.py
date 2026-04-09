@@ -767,7 +767,7 @@ async def setup_embeds(interaction : discord.Interaction, server_rules_channel_i
 
     # Send verification embed
     try:
-        await interaction.channel.send("# __**Welcome to the Calderian Army Discord Server!**__")
+        await interaction.channel.send(f"# __**Welcome to the {interaction.guild.name} Discord Server!**__")
         await interaction.channel.send(
             embed=create_verification_embed(),
             view=VerifyView()
