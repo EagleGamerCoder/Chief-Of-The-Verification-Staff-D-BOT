@@ -344,6 +344,7 @@ async def get_roblox_multi_group_role(member, interaction, group_id, sub_one, su
 
     try:
         group_role = await FetchRobloxGroupRole(member.id, group_id)
+        subgroup_name = None
     except Exception as e:
         print(f"Error fetching Roblox group role: {e}")
         await interaction.followup.send("An error occurred while fetching your Roblox group role.")
@@ -365,12 +366,13 @@ async def get_roblox_multi_group_role(member, interaction, group_id, sub_one, su
         if normalized == group_role:
             try:
                 group_role = await FetchRobloxGroupRole(member.id, sid)
+                subgroup_name = normalized
             except Exception as e:
                 print(f"Error fetching subgroup role for {sid}: {e}")
                 await interaction.followup.send("An error occurred while fetching your subgroup role.")
             break
-
-    return group_role
+    
+    return group_role, subgroup_name
 
 async def sync_discord_roles(member: discord.Member, interaction: discord.Interaction, group_id : int, sub_one : int, sub_two : int, sub_three : int):
     # Defer if needed
@@ -379,7 +381,7 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
 
     # ---------------- FETCH ROLE ----------------
     
-    group_role = await get_roblox_multi_group_role(member=member, interaction=interaction, group_id=group_id, sub_one=sub_one, sub_two=sub_two, sub_three=sub_three)
+    group_role, subgroup_name = await get_roblox_multi_group_role(member=member, interaction=interaction, group_id=group_id, sub_one=sub_one, sub_two=sub_two, sub_three=sub_three)
 
     # ---------------- HELPERS / CONFIG ----------------
     def normalize(name: str) -> str:
@@ -424,19 +426,28 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
 
         # Determine the new category for this role
         new_category_name = None
-        if any(clean_name.startswith(p) for p in ENLISTED_PREFIX):
-            new_category_name = CATEGORY_ROLE_NAMES["ENLISTED"]
-        elif any(clean_name.startswith(p) for p in OFFICER_PREFIX):
-            new_category_name = CATEGORY_ROLE_NAMES["OFFICER"]
-        elif any(clean_name.startswith(p) for p in CSB_PREFIXES):
-            new_category_name = CATEGORY_ROLE_NAMES["CHIEF_OF_STAFF_BOARD"]
-        elif any(clean_name.startswith(p) for p in DEV_PREFIX):
-            new_category_name = CATEGORY_ROLE_NAMES["DEVELOPER"]
+        if subgroup_name:
+            new_category_name = subgroup_name
+        else:
+            if interaction.guild.id == 798272876 or any(clean_name.startswith(p) for p in CSB_PREFIXES):
+                if any(clean_name.startswith(p) for p in ENLISTED_PREFIX):
+                    new_category_name = CATEGORY_ROLE_NAMES["ENLISTED"]
+                elif any(clean_name.startswith(p) for p in OFFICER_PREFIX):
+                    new_category_name = CATEGORY_ROLE_NAMES["OFFICER"]
+                elif any(clean_name.startswith(p) for p in CSB_PREFIXES):
+                    new_category_name = CATEGORY_ROLE_NAMES["CHIEF_OF_STAFF_BOARD"]
+                elif any(clean_name.startswith(p) for p in DEV_PREFIX):
+                    new_category_name = CATEGORY_ROLE_NAMES["DEVELOPER"]
+            else:
+                new_category_name = "HQ"
 
         # Resolve category role object (may be None if not configured)
         category_role = None
         if new_category_name:
-            category_role = discord.utils.get(interaction.guild.roles, name=new_category_name)
+            try:
+                category_role = discord.utils.get(interaction.guild.roles, name=new_category_name)
+            except Exception as e:
+                interaction.followup.send(f"Error getting category role, Error: {e}")
 
         # Build sets of roles to keep and to remove
         default_role = interaction.guild.default_role
@@ -526,6 +537,42 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
             await member.send(f"You have been ranked in 'Calderian Army' to the '**{role.name}**' rank.")
         except discord.Forbidden:
             pass
+    
+    # ---------------- WHEN USER HAS NO ROBLOX GROUP ROLE ----------------
+    else:
+        # Remove all non-exempt roles (we will keep category roles only if desired)
+        default_role = interaction.guild.default_role
+        roles_to_strip = [
+            r for r in member.roles
+            if (
+                r.name not in ["Roblox Verified", default_role.name]
+                and not r.managed
+                and r < interaction.guild.me.top_role
+            )
+        ]
+        if roles_to_strip:
+            try:
+                await member.remove_roles(*roles_to_strip, reason="User not in Roblox group")
+            except discord.HTTPException as e:
+                print(f"Failed to strip roles for {member.id}: {e}")
+
+        civilian_role = discord.utils.get(interaction.guild.roles, name="[CIV] Civilian")
+        if civilian_role and civilian_role not in member.roles:
+            try:
+                await member.add_roles(civilian_role, reason="Assign civilian role")
+            except discord.Forbidden:
+                pass
+            except discord.HTTPException as e:
+                print(f"Failed to add civilian role to {member.id}: {e}")
+
+        try:
+            await member.send(
+                f"You have been ranked in the {interaction.guild.name} Discord Server\n"
+                "You are not in the Roblox group. You have been given the role: **Civilian**."
+            )
+        except discord.Forbidden:
+            pass
+
 
 # ------------------------------ BOT ------------------------------
 
