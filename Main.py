@@ -4,6 +4,9 @@ Chief-Of-The-Verification-Staff
 
 Bot that creates a built-in embed to verify and update users roles in the Calderian Army Discord Servers
 
+/setup_embeds
+/setup_config
+
 '''
 
 # ------------------------------ IMPORTS ------------------------------
@@ -267,7 +270,11 @@ def remove_leading_bracket(string : str) -> str:
 
 async def FetchRobloxGroupRole(discord_user_id: int, group_id):
     # Fetches the Roblox group role for the specified group ID and interaction
-    roblox_user_id = await get_roblox_id(discord_user_id)
+    data = get_roblox_id_db(discord_user_id)
+    if not data:
+        return None
+
+    roblox_user_id = data[0]
 
     if not roblox_user_id:
         return None
@@ -576,7 +583,10 @@ class StartVerificationButton(discord.ui.Button):
         # Get the server rules ids
         ids = get_server_rules_ids(interaction.guild.id)
         if ids is None:
-            await interaction.response.send_message("❌ Rules not set up in this server.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ This server is not set up yet. Ask an admin to run `/setup-embeds`.",
+                ephemeral=True
+            )
             return
         channel_id, message_id = ids
         channel = interaction.guild.get_channel(channel_id)
@@ -615,57 +625,57 @@ class CompleteVerificationButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
         data = get_pending(interaction.user.id)
         if not data:
-            await interaction.response.send_message("❌ Start Verification first.", ephemeral=True)
+            await interaction.followup.send("❌ Start Verification first.", ephemeral=True)
             return
         roblox_id, code = data
         description = await get_profile_description(roblox_id)
         if code not in description:
-            await interaction.response.send_message("❌ Code not in bio.", ephemeral=True)
+            await interaction.followup.send("❌ Code not in bio.", ephemeral=True)
             return
         config = get_guild_config(interaction.guild.id)
         if not config:
-            await interaction.response.send_message("❌ Server not configured.", ephemeral=True)
+            await interaction.followup.send("❌ Server not configured.", ephemeral=True)
             return
         channel_id, role_id, group_id, sub_one, sub_two, sub_three = config
         rank = await get_group_rank(roblox_id, group_id)
         if rank <= 0:
-            await interaction.response.send_message("❌ Not in Roblox group.", ephemeral=True)
+            await interaction.followup.send("❌ Not in Roblox group.", ephemeral=True)
             return
         try:
             await sync_discord_roles(interaction.user, interaction, int(group_id), int(sub_one), int(sub_two), int(sub_three))
         except Exception as e:
-            await interaction.response.defer()
             await interaction.followup.send(f"An error occurred while updating your roles: {e}")
             return
         role = interaction.guild.get_role(role_id)
         await interaction.user.add_roles(role)  # Adds verified role
         delete_pending(interaction.user.id)
-        await interaction.response.send_message("✅ Verified!", ephemeral=True)
+        await interaction.followup.send("✅ Verified!", ephemeral=True)
 
 class UpdateButton(discord.ui.Button):
     def __init__(self):
-        super().__init(
+        super().__init__(
             label="Update",
             style=discord.ButtonStyle.green,
             custom_id="persistent_update_verification",
         )
 
     async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
         data = get_roblox_id_db(interaction.user.id)
         if data is None:
-            await interaction.response.send_message("❌ Your account is not verified.", ephemeral=True)
+            await interaction.followup.send("❌ Your account is not verified.", ephemeral=True)
             return
         config = get_guild_config(interaction.guild.id)
         if not config:
-            await interaction.response.send_message("❌ Server not configured.", ephemeral=True)
+            await interaction.followup.send("❌ Server not configured.", ephemeral=True)
             return
         channel_id, role_id, group_id, sub_one, sub_two, sub_three = config
         try:
             await sync_discord_roles(interaction.user, interaction, int(group_id), int(sub_one), int(sub_two), int(sub_three))
         except Exception as e:
-            await interaction.response.defer()
             await interaction.followup.send(f"An error occurred while updating your roles: {e}")
             return
 
@@ -710,14 +720,14 @@ def create_server_rules_embed():
 # ------------------------------ BOT COMMANDS ------------------------------
 
 # /setup_config
-@Bot.tree.command(name="setup-config", description="Sets up the config for the Bot (Use /setup_embed first).")
+@Bot.tree.command(name="setup-config", description="Sets up the config for the Bot (Use `/setup_embeds` first).")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_config(interaction : discord.Interaction, role : discord.Role,  group_id : int, sub_group_id_one : int, sub_group_id_two : int, sub_group_id_three : int):
     await interaction.response.defer()
 
     server_rules_ids = get_server_rules_ids(interaction.guild.id)
     if not server_rules_ids:
-        await interaction.followup.send("Server rules ids, Invalid, Run /setup_embeds first.", ephemeral=True)
+        await interaction.followup.send("Server rules ids, Invalid, Run `/setup_embeds` first.", ephemeral=True)
         return
 
     set_guild_config(interaction.guild.id, interaction.channel.id, role.id, group_id, sub_group_id_one, sub_group_id_two, sub_group_id_three)
