@@ -682,25 +682,80 @@ class VerifyView(discord.ui.View):
 def create_verification_embed():
     return discord.Embed(
         title="- Roblox Verification -",
-        description="1. React with a '✅' to the message in the '📘・server-rules' channel.\n2. Click the 'Start Verification' button below. \n\n> If you are already Verified click 'Update' to update your server roles.",
-        color=0xffd739
+        description="1. React with a '✅' to the message in the '📘・server-rules' channel.\n"
+        "2. Click the 'Start Verification' button below. \n\n"
+        "> If you are already Verified click 'Update' to update your server roles.",
+        color=discord.Color(0xffd739)
+    )
+
+def create_server_rules_embed():
+    return discord.Embed(
+        description="1. **ALL** Not-Safe-For-Work (NSFW) content or actions are prohibited.\n"
+            "2. **DO NOT** Spam anything on any channels.\n"
+            "3. Be kind to **EVERYONE** on this server, we don't want bullying of any sort.\n"
+            "4. **NO** Abusing any power as you are privileged to have it :slight_smile: . \n"
+            "5. **DO NOT** Make fake bug reports or post dumb ideas on ideas-and-suggestions.\n"
+            "6. **NO** Excessive profanity.\n"
+            "7. **NO** Discriminatory language or profanity.\n"
+            "8. **ALL** Forms of Online dating are prohibited.\n"
+            "9. **NO** Pinging Command or High ranking staff.\n"
+            "10. **NO** Advertisement unless by command staff.\n"
+            "11. **DO NOT** Attempt to hack or exploit any moderation or other systems.\n"
+            "12. **DO NOT** Share any personal information with anyone, or ask someone for their Personal Information.\n\n"
+            "> Ask someone or reach out to our development team, if you have any *important* questions about the rules.\n\n"
+            "## If ANY of these rules are broken, appropriate action will be taken depending on the severity and frequency of the offense. This may include a warning, mute, kick, or ban from the server.", 
+        color=discord.Color(0xffd739)
     )
 
 # ------------------------------ BOT COMMANDS ------------------------------
 
-# /setup_cotvs
-@Bot.tree.command(name="setup-cotvs", description="Sets up the 'Chief-Of-The-Verification-Staff' Bot.")
+# /setup_config
+@Bot.tree.command(name="setup-config", description="Sets up the config for the Bot (Use /setup_embed first).")
 @app_commands.checks.has_permissions(administrator=True)
-async def setup_cotvs(interaction : discord.Interaction, role : discord.Role, server_rules_channel_id : str, server_rules_message_id : str,  group_id : int, sub_group_id_one : int, sub_group_id_two : int, sub_group_id_three : int):
-    
-    set_guild_config(interaction.guild.id, interaction.channel.id, role.id, group_id, sub_group_id_one, sub_group_id_two, sub_group_id_three)
-    save_server_rules_ids(interaction.guild.id, int(server_rules_channel_id), int(server_rules_message_id))
+async def setup_config(interaction : discord.Interaction, role : discord.Role,  group_id : int, sub_group_id_one : int, sub_group_id_two : int, sub_group_id_three : int):
+    interaction.response.defer()
 
-    await interaction.response.send_message(
+    server_rules_ids = get_server_rules_ids(interaction.guild.id)
+    if not server_rules_ids:
+        await interaction.followup.send("Server rules ids, Invalid, Run /setup_embeds first.", ephemeral=True)
+        return
+
+    set_guild_config(interaction.guild.id, interaction.channel.id, role.id, group_id, sub_group_id_one, sub_group_id_two, sub_group_id_three)
+
+    await interaction.followup.send(
         "✅ Setup complete.", 
         ephemeral=True,
     )
-    await interaction.channel.send(embed=create_verification_embed(), view=VerifyView())
+
+# /setup_embeds
+@Bot.tree.command(name="setup-embeds", description="Sets up the Server rules embed and the verification emded (Use in #Verification).")
+@app_commands.checks.has_permissions(administrator=True)
+async def setup_embeds(interaction : discord.Interaction, server_rules_channel_id : str):
+    interaction.response.defer()
+    
+    # Server Rules
+    try:
+        server_rules_channel = interaction.guild.get_channel(int(server_rules_channel_id))
+    except Exception as e:
+        interaction.followup.send(f"The server ID is invalid, ID: {e}")
+
+    await server_rules_channel.send("# __**Server Rules:**__")
+    msg = await server_rules_channel.send(embed=create_server_rules_embed())
+    await msg.add_reaction('✅') # Add a check mark reaction for acknowledgment
+    server_rules_message_id = msg.id
+    save_server_rules_ids(interaction.guild.id, int(server_rules_channel_id), server_rules_message_id)
+    
+    # Verification
+    await interaction.channel.send("# __**Welcome to the Calderian Army Discord Server!**__")
+    await interaction.channel.send(
+        embed=create_verification_embed(),
+        view=VerifyView()
+    ) 
+
+    await interaction.followup.send(
+        "✅ Setup complete.", 
+        ephemeral=True,
+    )
 
 # ------------------------------ MAIN ------------------------------
 
