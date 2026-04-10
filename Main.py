@@ -2,8 +2,9 @@
 
 Chief-Of-The-Verification-Staff
 
-Bot that creates a built-in embed to verify and update users roles in the Calderian Army Discord Servers
+A Discord Bot that creates a built-in embed to verify, update users roles and present server rules in the Calderian Army Discord Servers
 
+Discord Command List:
 /setup_embeds
 /setup_config
 
@@ -19,12 +20,16 @@ from dotenv import load_dotenv
 from threading import Thread
 from flask import Flask
 import os
-import sqlite3
 import aiohttp
 import random
 import string
 import re
 import asyncio
+import time
+import atexit
+
+# Other files
+import db
 
 # ------------------------------ .ENV ------------------------------
 
@@ -35,8 +40,20 @@ load_dotenv()
 
 # Get .Env Variables
 discord_token = os.getenv('DISCORD_TOKEN')
+if not discord_token:
+    raise ValueError("DISCORD_TOKEN not found in .env")
+else:
+    print(f"[SETUP] discord_token Loaded.")
 
-print(f"[SETUP] Loaded.")
+main_guild_id = os.getenv('MAIN_GUILD_ID')
+if not main_guild_id:
+    raise ValueError("MAIN_GUILD_ID not found in .env")
+else:
+    main_guild_id = int(main_guild_id)
+    print(f"[SETUP] main_guild_id Loaded.")
+
+
+print(f"[SETUP] Loaded all .env variables.")
 
 # ------------------------------ FLASK KEEP ALIVE ------------------------------
 
@@ -51,11 +68,8 @@ def run_flask():
     app.run(host="0.0.0.0", port=port)
 
 def keep_alive():
-    t = Thread(target=run_flask)
+    t = Thread(target=run_flask, daemon=True)
     t.start()
-
-# Start the keep-alive server
-keep_alive()
 
 # ------------------------------ LOGGING ------------------------------
 
@@ -66,206 +80,78 @@ handler = logging.FileHandler(filename='discord_bot.log', encoding='utf-8', mode
 intents = discord.Intents.default()
 intents.members = True
 
-# ------------------------------ GLOBALS ------------------------------
+# ------------------------------ HTTP SESSION HANDLING ------------------------------
 
 http_session = None
 
-# ------------------------------ DATABASE ------------------------------
-
-# Sql file setup
-DB_FILE = 'main_storage.db'
-
-# Initialise DB
-def init_database():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS guild_config (
-        guild_id INTEGER PRIMARY KEY,
-        channel_id INTEGER,
-        role_id INTEGER,
-        group_id INTEGER,
-        sub_group_id_one INTEGER, 
-        sub_group_id_two INTEGER, 
-        sub_group_id_three INTEGER
-    )
-    """)
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS pending_verifications (
-        discord_id INTEGER PRIMARY KEY,
-        roblox_id INTEGER,
-        code TEXT
-    )
-    """)
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS verified (
-        discord_id INTEGER PRIMARY KEY,
-        roblox_id INTEGER
-    )
-    """)
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS server_rules_ids (
-        guild_id INTEGER PRIMARY KEY,
-        channel_id INTEGER,
-        message_id INTEGER
-    )   
-    """)
-
-    conn.commit()
-    conn.close()
-
-# Set the Guild config to the DB
-def set_guild_config(guild_id, channel_id, role_id, group_id, sub_group_id_one, sub_group_id_two, sub_group_id_three):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(
-        "INSERT OR REPLACE INTO guild_config VALUES (?, ?, ?, ?, ?, ?, ?)", 
-        (guild_id, channel_id, role_id, group_id, sub_group_id_one, sub_group_id_two, sub_group_id_three)
-    )
-    conn.commit()
-    conn.close()
-
-# Get the guild config form the DB, with the guild id
-def get_guild_config(guild_id):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(
-        "SELECT channel_id, role_id, group_id, sub_group_id_one, sub_group_id_two, sub_group_id_three FROM guild_config WHERE guild_id = ?", 
-        (guild_id,)
-    )
-    data = c.fetchone()
-    conn.close()
-    return data
-
-# Save pending verifications
-def save_pending(discord_id, roblox_id, code):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(
-        "INSERT OR REPLACE INTO pending_verifications VALUES (?, ?, ?)", 
-        (discord_id, roblox_id, code)
-    )
-    conn.commit()
-    conn.close()
-
-# Get pending verification with the discord id
-def get_pending(discord_id):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(
-        "SELECT roblox_id, code FROM pending_verifications WHERE discord_id = ?", 
-        (discord_id,)
-    )
-    data = c.fetchone()
-    conn.close()
-    return data
-
-# Remove the pending verification (due to time out)
-def delete_pending(discord_id):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(
-        "DELETE FROM pending_verifications WHERE discord_id = ?", 
-        (discord_id,)
-    )
-    conn.commit()
-    conn.close()
-
-def save_verify(discord_id, roblox_id):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(
-        "INSERT OR REPLACE INTO verified VALUES (?, ?)", 
-        (discord_id, roblox_id)
-    )
-    conn.commit()
-    conn.close()
-
-def get_roblox_id_db(discord_id):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(
-        "SELECT roblox_id FROM verified WHERE discord_id = ?", 
-        (discord_id,)
-    )
-    data = c.fetchone()
-    conn.commit()
-    conn.close()
-    return data
-
-def save_server_rules_ids(guild_id, channel_id, messge_id):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(
-        "INSERT OR REPLACE INTO server_rules_ids VALUES (?, ?, ?)", 
-        (guild_id, channel_id, messge_id)
-    )
-    conn.commit()
-    conn.close()
-
-def get_server_rules_ids(guild_id):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute(
-        "SELECT channel_id, message_id FROM server_rules_ids WHERE guild_id = ?", 
-        (guild_id,)
-    )
-    data = c.fetchone()
-    conn.commit()
-    conn.close()
-    return data
+async def ensure_http_session():
+    global http_session
+    if http_session is None or http_session.closed:
+        http_session = aiohttp.ClientSession()
 
 # ------------------------------ ROBLOX API HANDLING ------------------------------
 
 # Generates a six digit code
-def generate_code_six() -> int:
+def generate_code_six() -> str:
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
 # Get the roblox id of a user using their username
-async def get_roblox_id(username) -> int:
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            "https://users.roblox.com/v1/usernames/users",
-            json={"usernames" : [username]}
-        ) as response:
+async def get_roblox_id(username):
+    await ensure_http_session()
+    async with http_session.post(
+        "https://users.roblox.com/v1/usernames/users",
+        json={"usernames" : [username]}, 
+        timeout=10
+    ) as response:
+        try:
             data = await response.json()
-            if data["data"]:
-                return data["data"][0]["id"]
+        except Exception:
+            return 0
+        if data.get("data"):
+            return data["data"][0]["id"]
     return None
 
 # Get the profile description of a user using their roblox id
 async def get_profile_description(user_id):
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"https://users.roblox.com/v1/users/{user_id}") as response:
+    await ensure_http_session()
+    async with http_session.get(f"https://users.roblox.com/v1/users/{user_id}", timeout=10) as response:
+        try:
             data = await response.json()
-            return data.get("description", "")
+        except Exception:
+            return 0
+        return data.get("description", "")
         
 # Get the group rank of a user using their roblox user id and group id
-async def get_group_rank(user_id, group_id) -> str:
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"https://groups.roblox.com/v2/users/{user_id}/groups/roles") as response:
+async def get_group_rank(user_id, group_id):
+    await ensure_http_session()
+    async with http_session.get(f"https://groups.roblox.com/v2/users/{user_id}/groups/roles", timeout=10) as response:
+        try:
             data = await response.json()
+        except Exception:
+            return 0
 
-            for group in data["data"]:
-                if group["group"]["id"] == group_id:
-                    return group["role"]["rank"]
+        for group in data.get("data", []):
+            if group["group"]["id"] == group_id:
+                return group["role"]["rank"]
     return 0
 
-async def get_roblox_username(roblox_user_id : int) -> str:
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"https://https://users.roblox.com/v1/users/{roblox_user_id}") as response:
+async def get_roblox_username(roblox_user_id : int):
+    await ensure_http_session()
+    async with http_session.get(f"https://users.roblox.com/v1/users/{roblox_user_id}", timeout=10) as response:
+        try:
             data = await response.json()
-            return data.get("name", "Unknown")
+        except Exception:
+            return 0
+        return data.get("name", "Unknown")
 
 async def fetch_group_data(group_id):
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"https://groups.roblox.com/v1/groups/{group_id}") as response:
+    await ensure_http_session()
+    async with http_session.get(f"https://groups.roblox.com/v1/groups/{group_id}", timeout=10) as response:
+        try:
             data = await response.json()
-            return data
+        except Exception:
+            return 0
+        return data
             
     return None
 
@@ -275,8 +161,10 @@ def remove_leading_bracket(string : str) -> str:
     return re.sub(r'^\[.*?\]\s*','',string)
 
 async def FetchRobloxGroupRole(discord_user_id: int, group_id):
+    await ensure_http_session()
+    
     # Fetches the Roblox group role for the specified group ID and interaction
-    data = get_roblox_id_db(discord_user_id)
+    data = db.get_roblox_id_db(discord_user_id)
     if not data:
         return None
 
@@ -289,7 +177,6 @@ async def FetchRobloxGroupRole(discord_user_id: int, group_id):
     try:
         membership_url = f"https://groups.roblox.com/v1/users/{roblox_user_id}/groups/roles"
 
-        global http_session
         async with http_session.get(membership_url, timeout=10) as response:
 
             if response.status == 404:
@@ -313,8 +200,10 @@ async def FetchRobloxGroupRole(discord_user_id: int, group_id):
 
 async def set_prefix_nickname(member, role_name: str):
     try: 
-        prefix = role_name.split("]")[0]
-        if prefix:
+        match = re.match(r'^\[.*?\]', role_name)
+        prefix = match.group(0) if match else ""
+
+        if prefix != "":
             prefix = f"{prefix}]" 
         else:
             if role_name[:3] == "PRE": # Government rank
@@ -323,8 +212,11 @@ async def set_prefix_nickname(member, role_name: str):
                 prefix = ""
 
         try:
-            rblx_id = await get_roblox_id_db(member.id)
-            rblx_username = get_roblox_username(rblx_id)
+            data = db.get_roblox_id_db(member.id)
+            if data is not None:
+                rblx_username = await get_roblox_username(data[0])
+            else:
+                rblx_username = "Unknown"
             await member.edit(nick=f"{prefix} {rblx_username}")
         except discord.Forbidden:
             print("Missing permissions or role hierarchy prevents change")
@@ -356,12 +248,12 @@ async def get_roblox_multi_group_role(member, interaction, group_id, sub_one, su
     except Exception as e:
         print(f"Error fetching Roblox group role: {e}")
         await interaction.followup.send("An error occurred while fetching your Roblox group role.")
-        return
+        return None, None
 
     # Collect subgroup ids that are non-zero in order of priority
     sub_ids = [sid for sid in (sub_one, sub_two, sub_three) if sid]
     if not sub_ids:
-        return group_role
+        return group_role, None
 
     fetch_tasks = [get_group_name_async(sid) for sid in sub_ids]
     names = await asyncio.gather(*fetch_tasks, return_exceptions=True)
@@ -371,7 +263,7 @@ async def get_roblox_multi_group_role(member, interaction, group_id, sub_one, su
         if isinstance(name, Exception) or name is None:
             continue
         normalized = remove_leading_bracket(name)
-        if normalized == group_role:
+        if group_role and normalized == group_role.get("name"):
             try:
                 group_role = await FetchRobloxGroupRole(member.id, sid)
                 subgroup_name = normalized
@@ -387,9 +279,23 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
     if not interaction.response.is_done():
         await interaction.response.defer()
 
+    bot_member = interaction.guild.me
+
+    if not bot_member.guild_permissions.manage_roles:
+        await interaction.followup.send("❌ I need the **Manage Roles** permission.", ephemeral=True)
+        return
+
+    if not bot_member.guild_permissions.manage_nicknames:
+        await interaction.followup.send("❌ I need the **Change Nicknames** permission.", ephemeral=True)
+        return
+
     # ---------------- FETCH ROLE ----------------
     
     group_role, subgroup_name = await get_roblox_multi_group_role(member=member, interaction=interaction, group_id=group_id, sub_one=sub_one, sub_two=sub_two, sub_three=sub_three)
+    if not group_role:
+        print(f"[DEBUG] No Roblox group role found for {member.id}")
+        await interaction.followup.send(f"❌ No Roblox group role found for {member.id}", ephemeral=True)
+        return
 
     # ---------------- HELPERS / CONFIG ----------------
     def normalize(name: str) -> str:
@@ -418,12 +324,14 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
 
         # Find the exact discord role that matches the Roblox role name
         role = discord.utils.get(interaction.guild.roles, name=role_name)
+        if role:
+            keep_role_names.add(role.name)
 
         if not role:
             # Try a normalized lookup (in case of spacing/casing differences)
-            role = discord.utils.get(
-                interaction.guild.roles,
-                name=next((r for r in (role_name, clean_name) if r), None)
+            role = discord.utils.find(
+                lambda r: r.name.lower() == role_name.lower(),
+                interaction.guild.roles
             )
 
         if not role:
@@ -437,7 +345,7 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
         if subgroup_name:
             new_category_name = subgroup_name
         else:
-            if interaction.guild.id == 798272876 or any(clean_name.startswith(p) for p in CSB_PREFIXES):
+            if interaction.guild.id == main_guild_id or any(clean_name.startswith(p) for p in CSB_PREFIXES):
                 if any(clean_name.startswith(p) for p in ENLISTED_PREFIX):
                     new_category_name = CATEGORY_ROLE_NAMES["ENLISTED"]
                 elif any(clean_name.startswith(p) for p in OFFICER_PREFIX):
@@ -455,7 +363,7 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
             try:
                 category_role = discord.utils.get(interaction.guild.roles, name=new_category_name)
             except Exception as e:
-                interaction.followup.send(f"Error getting category role, Error: {e}")
+                await interaction.followup.send(f"Error getting category role, Error: {e}")
 
         # Build sets of roles to keep and to remove
         default_role = interaction.guild.default_role
@@ -587,15 +495,16 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
 # Bot Class
 class C_Bot(commands.Bot):
     async def setup_hook(self):
-        global http_session
-        if http_session is None:
-            http_session = aiohttp.ClientSession()
+        ensure_http_session()
+
+        self.add_view(VerifyView())
 
     async def on_ready(self):
         await self.tree.sync()
         print(f"[SETUP] Bot Online: {self.user}")
         
 # Create Bot
+keep_alive()
 Bot = C_Bot(command_prefix='/', intents=intents)
 
 # ------------------------------ MODAL ------------------------------
@@ -615,12 +524,33 @@ class UsernameModal(discord.ui.Modal, title="Enter Roblox Username"):
             return
         
         code = generate_code_six()
-        save_pending(discord_id=interaction.user.id, roblox_id=roblox_id, code=code)
+        db.save_pending(discord_id=interaction.user.id, roblox_id=roblox_id, code=code, created_at=int(time.time()))
 
         await interaction.response.send_message(
-            f"Put this code into you Roblox bio:\n\n**{code}**\n\nThen press **Complete Verification**",
+            f"Put this code into your Roblox bio:\n\n**{code}**\n\nThen press **Complete Verification**",
             ephemeral=True,
         )
+
+# ------------------------------ TRACK REACTIONS ------------------------------
+
+@Bot.event
+async def on_raw_reaction_add(payload):
+    if str(payload.emoji) != "✅":
+        return
+
+    guild = Bot.get_guild(payload.guild_id)
+    if not guild:
+        return
+
+    ids = db.get_server_rules_ids(payload.guild_id)
+    if not ids:
+        return
+
+    channel_id, message_id = ids
+
+    if payload.channel_id == channel_id and payload.message_id == message_id:
+        db.save_accepted_rules(payload.guild_id, payload.user_id)
+
 
 # ------------------------------ VIEW ------------------------------
 
@@ -635,40 +565,30 @@ class StartVerificationButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        # Get the server rules ids
-        ids = get_server_rules_ids(interaction.guild.id)
+        ids = db.get_server_rules_ids(interaction.guild.id)
         if ids is None:
             await interaction.response.send_message(
-                "❌ This server is not set up yet. Ask an admin to run `/setup-embeds`.",
+                "❌ This server is not set up yet.",
                 ephemeral=True
             )
             return
+
         channel_id, message_id = ids
         channel = interaction.guild.get_channel(channel_id)
+
         if not channel:
             await interaction.response.send_message("❌ Rules channel not found.", ephemeral=True)
             return
-        try:
-            message = await channel.fetch_message(message_id)
-        except discord.NotFound:
-            await interaction.response.send_message("❌ Rules message not found.", ephemeral=True)
-            return
 
-        # Check if user reacted with ✅
-        has_accepted = False
-        for reaction in message.reactions:
-            if str(reaction.emoji) == '✅':
-                async for user in reaction.users():
-                    if user.id == interaction.user.id:
-                        has_accepted = True
-                        break
-        if not has_accepted:
+        # FAST DB CHECK
+        if not db.has_accepted_rules(interaction.guild.id, interaction.user.id):
             await interaction.response.send_message(
                 "You must accept the rules first by reacting with '✅' in the rules channel.",
                 ephemeral=True
             )
             return
 
+        # MODAL
         await interaction.response.send_modal(UsernameModal())
 
 class CompleteVerificationButton(discord.ui.Button):
@@ -680,17 +600,26 @@ class CompleteVerificationButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        data = get_pending(interaction.user.id)
+        await interaction.response.defer(ephemeral=True)
+
+        data = db.get_pending(interaction.user.id)
         if not data:
             await interaction.followup.send("❌ Start Verification first.", ephemeral=True)
             return
-        roblox_id, code = data
+
+        roblox_id, code, created_at = data
+
+        # Expiry check (10 minutes = 600 seconds)
+        if time.time() - created_at > 600:
+            db.delete_pending(interaction.user.id)
+            await interaction.followup.send("❌ Verification expired. Start again.", ephemeral=True)
+            return
+        
         description = await get_profile_description(roblox_id)
         if code not in description:
             await interaction.followup.send("❌ Code not in bio.", ephemeral=True)
             return
-        config = get_guild_config(interaction.guild.id)
+        config = db.get_guild_config(interaction.guild.id)
         if not config:
             await interaction.followup.send("❌ Server not configured.", ephemeral=True)
             return
@@ -699,14 +628,20 @@ class CompleteVerificationButton(discord.ui.Button):
         if rank <= 0:
             await interaction.followup.send("❌ Not in Roblox group.", ephemeral=True)
             return
+        
         try:
             await sync_discord_roles(interaction.user, interaction, int(group_id), int(sub_one), int(sub_two), int(sub_three))
         except Exception as e:
             await interaction.followup.send(f"An error occurred while updating your roles: {e}")
             return
+        
         role = interaction.guild.get_role(role_id)
-        await interaction.user.add_roles(role)  # Adds verified role
-        delete_pending(interaction.user.id)
+        if role:
+            await interaction.user.add_roles(role) # adds verified role
+
+        db.save_verify(interaction.user.id, roblox_id)  
+
+        db.delete_pending(interaction.user.id)
         await interaction.followup.send("✅ Verified!", ephemeral=True)
 
 class UpdateButton(discord.ui.Button):
@@ -718,21 +653,25 @@ class UpdateButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        data = get_roblox_id_db(interaction.user.id)
+        await interaction.response.defer(ephemeral=True)
+
+        data = db.get_roblox_id_db(interaction.user.id)
         if data is None:
             await interaction.followup.send("❌ Your account is not verified.", ephemeral=True)
             return
-        config = get_guild_config(interaction.guild.id)
+        config = db.get_guild_config(interaction.guild.id)
         if not config:
             await interaction.followup.send("❌ Server not configured.", ephemeral=True)
             return
         channel_id, role_id, group_id, sub_one, sub_two, sub_three = config
+
         try:
             await sync_discord_roles(interaction.user, interaction, int(group_id), int(sub_one), int(sub_two), int(sub_three))
         except Exception as e:
-            await interaction.followup.send(f"An error occurred while updating your roles: {e}")
+            await interaction.followup.send(f"An error occurred while updating your roles: {e}", ephemeral=True)
             return
+        
+        await interaction.followup.send("✅ Roles updated!", ephemeral=True)
 
 
 class VerifyView(discord.ui.View):
@@ -780,12 +719,12 @@ def create_server_rules_embed():
 async def setup_config(interaction : discord.Interaction, role : discord.Role,  group_id : int, sub_group_id_one : int, sub_group_id_two : int, sub_group_id_three : int):
     await interaction.response.defer()
 
-    server_rules_ids = get_server_rules_ids(interaction.guild.id)
+    server_rules_ids = db.get_server_rules_ids(interaction.guild.id)
     if not server_rules_ids:
         await interaction.followup.send("Server rules ids, Invalid, Run `/setup_embeds` first.", ephemeral=True)
         return
 
-    set_guild_config(interaction.guild.id, interaction.channel.id, role.id, group_id, sub_group_id_one, sub_group_id_two, sub_group_id_three)
+    db.set_guild_config(interaction.guild.id, interaction.channel.id, role.id, group_id, sub_group_id_one, sub_group_id_two, sub_group_id_three)
 
     await interaction.followup.send(
         "✅ Setup complete.", 
@@ -818,7 +757,7 @@ async def setup_embeds(interaction : discord.Interaction, server_rules_channel_i
         return
 
     # Save message ID
-    save_server_rules_ids(interaction.guild.id, int(server_rules_channel_id), msg.id)
+    db.save_server_rules_ids(interaction.guild.id, int(server_rules_channel_id), msg.id)
 
     # Send verification embed
     try:
@@ -841,8 +780,11 @@ async def close_session():
     if http_session:
         await http_session.close()
 
-init_database()
+def shutdown():
+    asyncio.run(close_session())
+
+db.init_database()
 try:
     Bot.run(discord_token, reconnect=True, log_handler=handler, log_level=logging.DEBUG)
 finally:
-    asyncio.run(close_session())
+    atexit.register(shutdown)
