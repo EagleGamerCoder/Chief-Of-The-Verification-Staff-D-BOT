@@ -103,7 +103,7 @@ def keep_alive():
 # ------------------------------ RENDER WEB HOST CONNECTION ------------------------------
 
 # Yeah ggs I have no clue what this does - credit ChatGPT
-async def start_webserver():
+async def start_webserver() -> None:
     app = web.Application()
 
     async def handle(request):
@@ -130,7 +130,7 @@ async def start_webserver():
 handler = logging.FileHandler(filename='discord_bot.log', encoding='utf-8', mode='w')
 
 # Error logger
-async def log_error(interaction: discord.Interaction | None, func: str, code: int, e: Exception | str):
+async def log_error(interaction: discord.Interaction | None, func: str, code: int, e: Exception | str) -> None:
     msg = f"[ERROR] func = {func} ({code}), Error: {e}"
     
     # Print to console
@@ -168,7 +168,7 @@ def generate_code_six() -> str:
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
 # Get the roblox id of a user using their username
-async def get_roblox_id(username):
+async def get_roblox_id(username : str) -> int | None:
     await ensure_http_session()
     async with http_session.post(
         "https://users.roblox.com/v1/usernames/users",
@@ -184,7 +184,7 @@ async def get_roblox_id(username):
     return None
 
 # Get the profile description of a user using their roblox id
-async def get_profile_description(user_id):
+async def get_profile_description(user_id : int):
     await ensure_http_session()
     async with http_session.get(f"https://users.roblox.com/v1/users/{user_id}", timeout=10) as response:
         try:
@@ -560,7 +560,7 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
 class C_Bot(commands.Bot):
     async def setup_hook(self):
 
-        asyncio.current_task(start_webserver()) # starts the webserver
+        asyncio.create_task(start_webserver()) # starts the webserver
         await ensure_http_session() # Starts the http session for the roblox API handling
 
         self.add_view(VerifyView())
