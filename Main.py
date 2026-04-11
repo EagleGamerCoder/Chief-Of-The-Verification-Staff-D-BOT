@@ -4,9 +4,20 @@ Chief-Of-The-Verification-Staff
 
 A Discord Bot that creates a built-in embed to verify, update users roles and present server rules in the Calderian Army Discord Servers
 
+
 Discord Command List:
 /setup_embeds
 /setup_config
+
+
+Class list:
+C_Bot(commands.Bot)
+UsernameModal(discord.ui.Modal, title="Enter Roblox Username")
+StartVerificationButton(discord.ui.Button)
+
+
+Function list:
+
 
 '''
 
@@ -69,18 +80,23 @@ async def start_webserver():
     app = web.Application()
 
     async def handle(request):
-        return web.Response(text="COTVS is operational...")
-    
+        return web.Response(text="Bot is running")
+
     app.router.add_get("/", handle)
 
     runner = web.AppRunner(app)
     await runner.setup()
 
     port = int(os.environ.get("PORT", 10000))
-    site = web.TCPSite(runner, "0.0.0.0"), port
+    site = web.TCPSite(runner, "0.0.0.0", port)
 
     await site.start()
-    print(f"[SETUP] Webserver running on port: {port}")
+
+    print(f"[SETUP] Web - Listening on port {port}")
+
+    # KEEP RUNNING FOREVER (VERY IMPORTANT)
+    while True:
+        await asyncio.sleep(3600)
 
 # ------------------------------ LOGGING ------------------------------
 
@@ -517,8 +533,8 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
 class C_Bot(commands.Bot):
     async def setup_hook(self):
 
-        await start_webserver()
-        await ensure_http_session()
+        asyncio.current_task(start_webserver()) # starts the webserver
+        await ensure_http_session() # Starts the http session for the roblox API handling
 
         self.add_view(VerifyView())
 
