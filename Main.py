@@ -78,17 +78,16 @@ load_dotenv()
 # Get .Env Variables
 discord_token = os.getenv('DISCORD_TOKEN')
 if discord_token:
-    discord_token = int(discord_token)
     print(f"[SETUP] discord_token: {bool(discord_token)}")
 else:
-    raise RuntimeError("discord_token is missing from .nv variables")
+    raise RuntimeError("discord_token is missing from .env variables")
 
-main_guild_id = int(os.getenv('MAIN_GUILD_ID'))
-if discord_token:
-    discord_token = int(discord_token)
+main_guild_id = os.getenv('MAIN_GUILD_ID')
+if main_guild_id:
+    main_guild_id = int(main_guild_id)
     print(f"[SETUP] main_guild_id: {bool(main_guild_id)}")
 else:
-    raise RuntimeError("main_guild_id is missing from .nv variables")
+    raise RuntimeError("main_guild_id is missing from .env variables")
 
 
 print(f"[SETUP] Loaded all .env variables.")
@@ -129,10 +128,6 @@ async def start_webserver() -> None:
 
     await site.start()
     print(f"[SETUP] Web server listening on port {port}")
-
-    # KEEP RUNNING FOREVER (VERY IMPORTANT)
-    while True:
-        await asyncio.sleep(3600)
 
 # ------------------------------ LOGGING ------------------------------
 
@@ -281,8 +276,8 @@ async def FetchRobloxGroupRole(discord_user_id: int, group_id):
 
 async def set_prefix_nickname(member, role_name: str):
     try: 
-        match = remove_leading_bracket(role_name)
-        prefix = match.group(0) if match else ""
+        match = re.match(r'^\[(.*?)\]', role_name)
+        prefix = match.group(1) if match else ""
 
         if prefix != "":
             prefix = f"{prefix}]" 
@@ -395,6 +390,8 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
         role_name = group_role.get("name", "Unknown")
         clean_name = normalize(role_name)
 
+        keep_role_names = {interaction.guild.default_role.name, "Roblox Verified"}
+
         # Find the exact discord role that matches the Roblox role name
         role = discord.utils.get(interaction.guild.roles, name=role_name)
         if role:
@@ -438,7 +435,7 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
 
         # Build sets of roles to keep and to remove
         default_role = interaction.guild.default_role
-        keep_role_names = {default_role.name, "Roblox Verified"}
+        
         # Keep the main rank role and the new category role (if present)
         keep_role_names.add(role.name)
         if category_role:
@@ -613,6 +610,9 @@ class UsernameModal(discord.ui.Modal, title="Enter Roblox Username"):
 
 @Bot.event
 async def on_raw_reaction_add(payload):
+    if payload.user_id == Bot.user.id:
+        return
+    
     if str(payload.emoji) != "✅":
         return
 
@@ -912,12 +912,19 @@ async def main():
     print("[SETUP] Starting webserver...")
 
     await ensure_http_session()
-    asyncio.create_task(start_webserver())
+
+    web_task = asyncio.create_task(start_webserver())
+    web_task.add_done_callback(lambda t: print(t.exception()))
 
     print("[SETUP] webserver started!")
     print("[SETUP] Starting discord bot...")
-
-    await Bot.start(discord_token, reconnect=True)
+    
+    try:
+        await Bot.start(discord_token)
+    finally:
+        web_task.cancel()
+        await close_session()
+    
 
 if __name__ == '__main__':
     asyncio.run(main())
