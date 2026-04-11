@@ -15,6 +15,7 @@ Discord Command List:
 import discord
 from discord import app_commands
 from discord.ext import commands
+
 import logging
 from dotenv import load_dotenv
 from threading import Thread
@@ -74,6 +75,24 @@ def keep_alive():
 # ------------------------------ LOGGING ------------------------------
 
 handler = logging.FileHandler(filename='discord_bot.log', encoding='utf-8', mode='w')
+
+# Error logger
+async def log_error(interaction: discord.Interaction | None, func: str, code: int, e: Exception | str):
+    msg = f"[ERROR] func = {func} ({code}), Error: {e}"
+    
+    # Print to console
+    print(msg)
+
+    # Try to notify user if interaction exists
+    if interaction:
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send("❌ An error occurred. Please contact a developer.", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ An error occurred. Please contact a developer.", ephemeral=True)
+        except Exception:
+            # If even that fails, just ignore
+            pass
 
 # ------------------------------ INTENTS ------------------------------
 
@@ -195,7 +214,7 @@ async def FetchRobloxGroupRole(discord_user_id: int, group_id):
         return None  # not in group
 
     except Exception as e:
-        print(f"[ERROR] fetch_roblox_group_role_by_discord: {e}")
+        await log_error(None, "FetchRobloxGroupRole", 1, e)
         return None
 
 async def set_prefix_nickname(member, role_name: str):
@@ -219,13 +238,15 @@ async def set_prefix_nickname(member, role_name: str):
                 rblx_username = "Unknown"
             await member.edit(nick=f"{prefix} {rblx_username}")
         except discord.Forbidden:
-            print("Missing permissions or role hierarchy prevents change")
+            await log_error(None, "set_prefix_nickname", 1, "Missing Permissions")
+            return
         except discord.HTTPException as e:
-            print(f"HTTP error: {e}")
+            await log_error(None, "set_prefix_nickname", 2, e)
+            return
             
     except Exception as e:
-        print(f"Error extracting prefix: {e}")
-        prefix = ""
+        await log_error(None, "set_prefix_nickname", 3, e)
+        return
 
 async def get_group_name_async(group_id):
     try:
@@ -238,16 +259,12 @@ async def get_group_name_async(group_id):
     return None
 
 async def get_roblox_multi_group_role(member, interaction, group_id, sub_one, sub_two, sub_three):
-    # Defer if needed
-    if not interaction.response.is_done():
-        await interaction.response.defer()
 
     try:
         group_role = await FetchRobloxGroupRole(member.id, group_id)
         subgroup_name = None
     except Exception as e:
-        print(f"Error fetching Roblox group role: {e}")
-        await interaction.followup.send("An error occurred while fetching your Roblox group role.")
+        await log_error(interaction, "get_roblox_multi_group_role", 1, e)
         return None, None
 
     # Collect subgroup ids that are non-zero in order of priority
@@ -268,34 +285,26 @@ async def get_roblox_multi_group_role(member, interaction, group_id, sub_one, su
                 group_role = await FetchRobloxGroupRole(member.id, sid)
                 subgroup_name = normalized
             except Exception as e:
-                print(f"Error fetching subgroup role for {sid}: {e}")
-                await interaction.followup.send("An error occurred while fetching your subgroup role.")
+                await log_error(interaction, "get_roblox_multi_group_role", 2, f"Error fetching subgroup role for {sid}: {e}")
             break
     
     return group_role, subgroup_name
 
 async def sync_discord_roles(member: discord.Member, interaction: discord.Interaction, group_id : int, sub_one : int, sub_two : int, sub_three : int):
-    # Defer if needed
-    if not interaction.response.is_done():
-        await interaction.response.defer()
 
     bot_member = interaction.guild.me
 
     if not bot_member.guild_permissions.manage_roles:
-        await interaction.followup.send("❌ I need the **Manage Roles** permission.", ephemeral=True)
+        await log_error(interaction, "sync_discord_roles", 1, "Missing Manage roles permission")
         return
 
     if not bot_member.guild_permissions.manage_nicknames:
-        await interaction.followup.send("❌ I need the **Change Nicknames** permission.", ephemeral=True)
+        await log_error(interaction, "sync_discord_roles", 2, "Missing Change nicknames permission")
         return
 
     # ---------------- FETCH ROLE ----------------
     
     group_role, subgroup_name = await get_roblox_multi_group_role(member=member, interaction=interaction, group_id=group_id, sub_one=sub_one, sub_two=sub_two, sub_three=sub_three)
-    if not group_role:
-        print(f"[DEBUG] No Roblox group role found for {member.id}")
-        await interaction.followup.send(f"❌ No Roblox group role found for {member.id}", ephemeral=True)
-        return
 
     # ---------------- HELPERS / CONFIG ----------------
     def normalize(name: str) -> str:
@@ -335,9 +344,7 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
             )
 
         if not role:
-            await interaction.followup.send(
-                f"The Discord role **{role_name}** does not exist. Contact a dev."
-            )
+            await log_error(interaction, "sync_discord_roles", 3, f"The {role_name} discord role does not exist.")
             return
 
         # Determine the new category for this role
@@ -363,7 +370,7 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
             try:
                 category_role = discord.utils.get(interaction.guild.roles, name=new_category_name)
             except Exception as e:
-                await interaction.followup.send(f"Error getting category role, Error: {e}")
+                await log_error(interaction, "sync_discord_roles", 4, f"The {new_category_name} discord role does not exist. Error Msg: {e}")
 
         # Build sets of roles to keep and to remove
         default_role = interaction.guild.default_role
@@ -408,16 +415,16 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
             try:
                 await member.remove_roles(*remove_set, reason="Syncing Roblox rank")
             except discord.HTTPException as e:
-                print(f"Failed to remove roles for {member.id}: {e}")
+                await log_error(interaction, "sync_discord_roles", 5, f"Failed to remove roles for {member.id}. Error Msg: {e}")
 
         # Add the main role if missing
         if role not in member.roles:
             try:
                 await member.add_roles(role, reason="Syncing Roblox rank")
             except discord.Forbidden:
-                print(f"Permission denied when adding role {role.name} to {member.id}")
+                await log_error(interaction, "sync_discord_roles", 6, f"Permission denied when adding role {role.name} to {member.id}")
             except discord.HTTPException as e:
-                print(f"Failed to add role {role.name} to {member.id}: {e}")
+                await log_error(interaction, "sync_discord_roles", 7, f"Failed to add role {role.name} to {member.id}. Error Msg: {e}")
 
         # Ensure category role is correct: remove other category roles (defensive) then add the new one
         # Remove any remaining category roles that are not the desired one
@@ -431,22 +438,22 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
             try:
                 await member.remove_roles(*remaining_conflicting, reason="Syncing category roles")
             except discord.HTTPException as e:
-                print(f"Failed to remove conflicting category roles for {member.id}: {e}")
+                await log_error(interaction, "sync_discord_roles", 8, f"Failed to remove conflicting category roles for {member.id}. Error Msg: {e}")
 
         # Add the category role if applicable and missing
         if category_role and category_role not in member.roles:
             try:
                 await member.add_roles(category_role, reason="Syncing category role")
             except discord.Forbidden:
-                print(f"Permission denied when adding category role {category_role.name} to {member.id}")
+                await log_error(interaction, "sync_discord_roles", 9, f"Permission denied when adding category role {category_role.name} to {member.id}")
             except discord.HTTPException as e:
-                print(f"Failed to add category role {category_role.name} to {member.id}: {e}")
+                await log_error(interaction, "sync_discord_roles", 10, f"Failed to add category role {category_role.name} to {member.id}. Error Msg: {e}")
 
         # Nickname update
         try:
             await set_prefix_nickname(member, role_name)
         except Exception as e:
-            print(f"Failed to set nickname for {member.id}: {e}")
+            await log_error(interaction, "sync_discord_roles", 11, f"Failed to set nickname for {member.id}. Error Msg: {e}")
 
         # DM the user (best-effort)
         try:
@@ -472,16 +479,16 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
             try:
                 await member.remove_roles(*roles_to_strip, reason="User not in Roblox group")
             except discord.HTTPException as e:
-                print(f"Failed to strip roles for {member.id}: {e}")
+                await log_error(interaction, "sync_discord_roles", 12, f"Failed to strip roles for {member.id}. Error Msg: {e}")
 
         civilian_role = discord.utils.get(interaction.guild.roles, name="[CIV] Civilian")
         if civilian_role and civilian_role not in member.roles:
             try:
                 await member.add_roles(civilian_role, reason="Assign civilian role")
             except discord.Forbidden:
-                pass
+                await log_error(interaction, "sync_discord_roles", 13, f"Permission denied when adding civilian role to {member.id}")
             except discord.HTTPException as e:
-                print(f"Failed to add civilian role to {member.id}: {e}")
+                await log_error(interaction, "sync_discord_roles", 14, f"Failed to add civilian role to {member.id}. Error Msg: {e}")
 
         try:
             await member.send(
@@ -569,31 +576,34 @@ class StartVerificationButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        ids = db.get_server_rules_ids(interaction.guild.id)
-        if ids is None:
-            await interaction.response.send_message(
-                "❌ This server is not set up yet.",
-                ephemeral=True
-            )
-            return
+        try:
+            ids = db.get_server_rules_ids(interaction.guild.id)
+            if ids is None:
+                await interaction.response.send_message(
+                    "❌ This server is not set up yet.",
+                    ephemeral=True
+                )
+                return
 
-        channel_id, message_id = ids
-        channel = interaction.guild.get_channel(channel_id)
+            channel_id, message_id = ids
+            channel = interaction.guild.get_channel(channel_id)
 
-        if not channel:
-            await interaction.response.send_message("❌ Rules channel not found.", ephemeral=True)
-            return
+            if not channel:
+                await interaction.response.send_message("❌ Rules channel not found.", ephemeral=True)
+                return
 
-        # FAST DB CHECK
-        if not db.has_accepted_rules(interaction.guild.id, interaction.user.id):
-            await interaction.response.send_message(
-                "You must accept the rules first by reacting with '✅' in the rules channel.",
-                ephemeral=True
-            )
-            return
+            # FAST DB CHECK
+            if not db.has_accepted_rules(interaction.guild.id, interaction.user.id):
+                await interaction.response.send_message(
+                    "You must accept the rules first by reacting with '✅' in the rules channel.",
+                    ephemeral=True
+                )
+                return
 
-        # MODAL
-        await interaction.response.send_modal(UsernameModal())
+            # MODAL
+            await interaction.response.send_modal(UsernameModal())
+        except Exception as e:
+            await log_error(interaction, "StartVerificationButton", 1, e)
 
 class CompleteVerificationButton(discord.ui.Button):
     def __init__(self):
@@ -604,52 +614,55 @@ class CompleteVerificationButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-
-        data = db.get_pending(interaction.user.id)
-        if not data:
-            await interaction.followup.send("❌ Start Verification first.", ephemeral=True)
-            return
-
-        roblox_id, code, created_at = data
-
-        # Expiry check (10 minutes = 600 seconds)
-        if time.time() - created_at > 600:
-            db.delete_pending(interaction.user.id)
-            await interaction.followup.send("❌ Verification expired. Start again.", ephemeral=True)
-            return
-        
-        description = await get_profile_description(roblox_id)
-        if code not in description:
-            await interaction.followup.send("❌ Code not in bio.", ephemeral=True)
-            return
-        config = db.get_guild_config(interaction.guild.id)
-        if not config:
-            await interaction.followup.send("❌ Server not configured.", ephemeral=True)
-            return
-        channel_id, role_id, group_id, sub_one, sub_two, sub_three = config
-        rank = await get_group_rank(roblox_id, group_id)
-        if rank <= 0:
-            await interaction.followup.send("❌ Not in Roblox group.", ephemeral=True)
-            return
-        
         try:
-            result = await sync_discord_roles(interaction.user, interaction, int(group_id), int(sub_one), int(sub_two), int(sub_three))
-            if result == 1:
-                role = interaction.guild.get_role(role_id)
-                if role:
-                    await interaction.user.add_roles(role) # adds verified role
+            await interaction.response.defer(ephemeral=True)
 
-                db.save_verify(interaction.user.id, roblox_id)  
-
-                db.delete_pending(interaction.user.id)
-                await interaction.followup.send("✅ Verified!", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Error with Verification.", ephemeral=True)
+            data = db.get_pending(interaction.user.id)
+            if not data:
+                await interaction.followup.send("❌ Start Verification first.", ephemeral=True)
                 return
+
+            roblox_id, code, created_at = data
+
+            # Expiry check (10 minutes = 600 seconds)
+            if time.time() - created_at > 600:
+                db.delete_pending(interaction.user.id)
+                await interaction.followup.send("❌ Verification expired. Start again.", ephemeral=True)
+                return
+            
+            description = await get_profile_description(roblox_id)
+            if code not in description:
+                await interaction.followup.send("❌ Code not in bio.", ephemeral=True)
+                return
+            config = db.get_guild_config(interaction.guild.id)
+            if not config:
+                await interaction.followup.send("❌ Server not configured.", ephemeral=True)
+                return
+            channel_id, role_id, group_id, sub_one, sub_two, sub_three = config
+            rank = await get_group_rank(roblox_id, group_id)
+            if rank <= 0:
+                await interaction.followup.send("❌ Not in Roblox group.", ephemeral=True)
+                return
+            
+            try:
+                result = await sync_discord_roles(interaction.user, interaction, int(group_id), int(sub_one), int(sub_two), int(sub_three))
+                if result == 1:
+                    role = interaction.guild.get_role(role_id)
+                    if role:
+                        await interaction.user.add_roles(role) # adds verified role
+
+                    db.save_verify(interaction.user.id, roblox_id)  
+
+                    db.delete_pending(interaction.user.id)
+                    await interaction.followup.send("✅ Verified!", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ Error with Verification.", ephemeral=True)
+                    return
+            except Exception as e:
+                await log_error(interaction, "CompleteVerificationButton", 1, e)
+
         except Exception as e:
-            await interaction.followup.send(f"An error occurred while updating your roles: {e}")
-            return
+            await log_error(interaction, "CompleteVerificationButton", 2, e)
         
         
 
@@ -662,27 +675,31 @@ class UpdateButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-
-        data = db.get_roblox_id(interaction.user.id)
-        if data is None:
-            await interaction.followup.send("❌ Your account is not verified.", ephemeral=True)
-            return
-        config = db.get_guild_config(interaction.guild.id)
-        if not config:
-            await interaction.followup.send("❌ Server not configured.", ephemeral=True)
-            return
-        channel_id, role_id, group_id, sub_one, sub_two, sub_three = config
-
         try:
-            result = await sync_discord_roles(interaction.user, interaction, int(group_id), int(sub_one), int(sub_two), int(sub_three))
-            if result == 1:
-                await interaction.followup.send("✅ Roles updated!", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Roles not updated.", ephemeral=True)
+            await interaction.response.defer(ephemeral=True)
+
+            data = db.get_roblox_id(interaction.user.id)
+            if data is None:
+                await interaction.followup.send("❌ Your account is not verified.", ephemeral=True)
+                return
+            config = db.get_guild_config(interaction.guild.id)
+            if not config:
+                await interaction.followup.send("❌ Server not configured.", ephemeral=True)
+                return
+            channel_id, role_id, group_id, sub_one, sub_two, sub_three = config
+
+            try:
+                result = await sync_discord_roles(interaction.user, interaction, int(group_id), int(sub_one), int(sub_two), int(sub_three))
+                if result == 1:
+                    await interaction.followup.send("✅ Roles updated!", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ Roles not updated.", ephemeral=True)
+            except Exception as e:
+                await log_error(interaction, "UpdateButton", 1, e)
+                return
+            
         except Exception as e:
-            await interaction.followup.send(f"An error occurred while updating your roles: {e}", ephemeral=True)
-            return
+            await log_error(interaction, "UpdateButton", 2, e)
         
         
 
@@ -726,29 +743,43 @@ def create_server_rules_embed():
 
 # ------------------------------ BOT COMMANDS ------------------------------
 
+# Commannd error catcher
+@Bot.tree.error
+async def on_app_commmand_error(interaction : discord.Interaction, error : app_commands.AppCommandError):
+    await log_error(interaction, "on_app_commmand_error", 1, error)
+
 # /setup_config
 @Bot.tree.command(name="setup-config", description="Sets up the config for the Bot (Use `/setup_embeds` first).")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_config(interaction : discord.Interaction, role : discord.Role,  group_id : int, sub_group_id_one : int, sub_group_id_two : int, sub_group_id_three : int):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
+
+    await interaction.followup.send("Setting up config...", ephemeral=True)
 
     server_rules_ids = db.get_server_rules_ids(interaction.guild.id)
     if not server_rules_ids:
         await interaction.followup.send("Server rules ids, Invalid, Run `/setup_embeds` first.", ephemeral=True)
         return
 
-    db.set_guild_config(interaction.guild.id, interaction.channel.id, role.id, group_id, sub_group_id_one, sub_group_id_two, sub_group_id_three)
+    try:
+        db.set_guild_config(interaction.guild.id, interaction.channel.id, role.id, group_id, sub_group_id_one, sub_group_id_two, sub_group_id_three)
 
-    await interaction.followup.send(
-        "✅ Setup complete.", 
-        ephemeral=True,
-    )
+        await interaction.followup.send(
+            "✅ Setup complete.", 
+            ephemeral=True,
+        )
+    except Exception as e:
+        await log_error(interaction, "setup_config", 1, e)
+
+    
 
 # /setup_embeds
 @Bot.tree.command(name="setup-embeds", description="Sets up the Server rules embed and the verification emded (Use in #Verification).")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_embeds(interaction : discord.Interaction, server_rules_channel_id : str):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
+
+    await interaction.followup.send("Setting up embeds...", ephemeral=True)
 
     # Validate channel
     try:
@@ -760,31 +791,27 @@ async def setup_embeds(interaction : discord.Interaction, server_rules_channel_i
         await interaction.followup.send("❌ Invalid channel ID format.", ephemeral=True)
         return
 
-    # Send rules embed
     try:
+        # Send rules embed
         await server_rules_channel.send("# __**Server Rules:**__")
         msg = await server_rules_channel.send(embed=create_server_rules_embed())
         await msg.add_reaction('✅')
-    except Exception as e:
-        await interaction.followup.send(f"❌ Failed to send rules embed: {e}", ephemeral=True)
-        return
 
-    # Save message ID
-    db.save_server_rules_ids(interaction.guild.id, int(server_rules_channel_id), msg.id)
+        db.save_server_rules_ids(interaction.guild.id, server_rules_channel.id, msg.id)
 
-    # Send verification embed
-    try:
+        # Send verification embed
         await interaction.channel.send(f"# __**Welcome to the {interaction.guild.name} Discord Server!**__")
         await interaction.channel.send(
             embed=create_verification_embed(),
             view=VerifyView()
         )
-    except Exception as e:
-        await interaction.followup.send(f"❌ Failed to send verification embed: {e}", ephemeral=True)
-        return
 
-    # Final response
-    await interaction.followup.send("✅ Setup complete.", ephemeral=True)
+        # Final response
+        await interaction.followup.send("✅ Setup complete.", ephemeral=True)
+
+    except Exception as e:
+        await log_error(interaction, "setup_embeds", 1, e)
+        return
 
 # ------------------------------ MAIN ------------------------------
 
