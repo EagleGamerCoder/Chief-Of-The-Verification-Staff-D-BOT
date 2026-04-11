@@ -77,9 +77,19 @@ load_dotenv()
 
 # Get .Env Variables
 discord_token = os.getenv('DISCORD_TOKEN')
-print(f"[SETUP] discord_token: {bool(discord_token)}")
+if discord_token:
+    discord_token = int(discord_token)
+    print(f"[SETUP] discord_token: {bool(discord_token)}")
+else:
+    raise RuntimeError("discord_token is missing from .nv variables")
+
 main_guild_id = int(os.getenv('MAIN_GUILD_ID'))
-print(f"[SETUP] main_guild_id: {bool(main_guild_id)}")
+if discord_token:
+    discord_token = int(discord_token)
+    print(f"[SETUP] main_guild_id: {bool(main_guild_id)}")
+else:
+    raise RuntimeError("main_guild_id is missing from .nv variables")
+
 
 print(f"[SETUP] Loaded all .env variables.")
 '''
@@ -118,8 +128,7 @@ async def start_webserver() -> None:
     site = web.TCPSite(runner, "0.0.0.0", port)
 
     await site.start()
-
-    print(f"[SETUP] Web - Listening on port {port}")
+    print(f"[SETUP] Web server listening on port {port}")
 
     # KEEP RUNNING FOREVER (VERY IMPORTANT)
     while True:
@@ -194,7 +203,7 @@ async def get_profile_description(user_id : int):
         return data.get("description", "")
         
 # Get the group rank of a user using their roblox user id and group id
-async def get_group_rank(user_id, group_id):
+async def get_group_rank(user_id : int, group_id : int) -> int:
     await ensure_http_session()
     async with http_session.get(f"https://groups.roblox.com/v2/users/{user_id}/groups/roles", timeout=10) as response:
         try:
@@ -207,13 +216,13 @@ async def get_group_rank(user_id, group_id):
                 return group["role"]["rank"]
     return 0
 
-async def get_roblox_username(roblox_user_id):
+async def get_roblox_username(roblox_user_id : int) -> str:
     await ensure_http_session()
     async with http_session.get(f"https://users.roblox.com/v1/users/{roblox_user_id}", timeout=10) as response:
         try:
             data = await response.json()
         except Exception:
-            return 0
+            return ""
         return data.get("name", "Unknown")
 
 async def fetch_group_data(group_id):
@@ -289,7 +298,9 @@ async def set_prefix_nickname(member, role_name: str):
                 rblx_username = await get_roblox_username(data[0])
             else:
                 rblx_username = "Unknown"
+
             await member.edit(nick=f"{prefix} {rblx_username}")
+
         except discord.Forbidden:
             await log_error(None, "set_prefix_nickname", 1, "Missing Permissions")
             return
@@ -559,8 +570,6 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
 # Bot Class
 class C_Bot(commands.Bot):
     async def setup_hook(self):
-
-        asyncio.create_task(start_webserver()) # starts the webserver
         await ensure_http_session() # Starts the http session for the roblox API handling
 
         self.add_view(VerifyView())
@@ -569,6 +578,7 @@ class C_Bot(commands.Bot):
         try:
             await self.tree.sync()
             print(f"[SETUP] COMPLETE - Bot Online: {self.user}")
+
         except Exception as e:
             print(f"[ERROR] func = on_ready (1), Error: {e}")
         
@@ -898,14 +908,16 @@ def shutdown():
 
 db.init_database()
 
-try:
-    print("[SETUP] Starting bot...")
-    Bot.run(discord_token, reconnect=True, log_handler=handler, log_level=logging.DEBUG)
+async def main():
+    print("[SETUP] Starting webserver...")
 
-except Exception as e:
-    print(f"[FATAL] Bot crashed. Error Msg: {e}")
+    await ensure_http_session()
+    asyncio.create_task(start_webserver())
 
-    # Prevent restart spam 
-    while True:
-        print("[FATAL] Sleeping to avoid rate limit...")
-        time.sleep(300)  # 5 minutes
+    print("[SETUP] webserver started!")
+    print("[SETUP] Starting discord bot...")
+
+    await Bot.start(discord_token, reconnect=True)
+
+if __name__ == '__main__':
+    asyncio.run(main())
