@@ -164,7 +164,7 @@ async def FetchRobloxGroupRole(discord_user_id: int, group_id):
     await ensure_http_session()
     
     # Fetches the Roblox group role for the specified group ID and interaction
-    data = db.get_roblox_id_db(discord_user_id)
+    data = db.get_roblox_id(discord_user_id)
     if not data:
         return None
 
@@ -212,7 +212,7 @@ async def set_prefix_nickname(member, role_name: str):
                 prefix = ""
 
         try:
-            data = db.get_roblox_id_db(member.id)
+            data = db.get_roblox_id(member.id)
             if data is not None:
                 rblx_username = await get_roblox_username(data[0])
             else:
@@ -495,7 +495,7 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
 # Bot Class
 class C_Bot(commands.Bot):
     async def setup_hook(self):
-        await ensure_http_session()
+        ensure_http_session()
 
         self.add_view(VerifyView())
 
@@ -655,7 +655,7 @@ class UpdateButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
-        data = db.get_roblox_id_db(interaction.user.id)
+        data = db.get_roblox_id(interaction.user.id)
         if data is None:
             await interaction.followup.send("❌ Your account is not verified.", ephemeral=True)
             return
