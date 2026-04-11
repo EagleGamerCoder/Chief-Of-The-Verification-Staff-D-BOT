@@ -210,7 +210,7 @@ async def FetchRobloxGroupRole(discord_user_id: int, group_id):
 
 async def set_prefix_nickname(member, role_name: str):
     try: 
-        match = re.match(r'^\[.*?\]', role_name)
+        match = remove_leading_bracket(role_name)
         prefix = match.group(0) if match else ""
 
         if prefix != "":
