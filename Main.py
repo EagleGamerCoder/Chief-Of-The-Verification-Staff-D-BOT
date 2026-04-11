@@ -495,7 +495,7 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
 # Bot Class
 class C_Bot(commands.Bot):
     async def setup_hook(self):
-        ensure_http_session()
+        await ensure_http_session()
 
         self.add_view(VerifyView())
 
