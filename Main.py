@@ -16,6 +16,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from flask import Flask
+from threading import Thread
+
 import logging
 from dotenv import load_dotenv
 import os
@@ -25,7 +28,6 @@ import string
 import re
 import asyncio
 import time
-import atexit
 
 # Other files
 import db
@@ -46,12 +48,12 @@ print(f"[SETUP] main_guild_id: {bool(main_guild_id)}")
 print(f"[SETUP] Loaded all .env variables.")
 
 # ------------------------------ FLASK KEEP ALIVE ------------------------------
-'''
+
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "COTVS Online."
+    return "Bot is running."
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -60,7 +62,7 @@ def run_flask():
 def keep_alive():
     t = Thread(target=run_flask, daemon=True)
     t.start()
-'''
+
 # ------------------------------ LOGGING ------------------------------
 
 handler = logging.FileHandler(filename='discord_bot.log', encoding='utf-8', mode='w')
@@ -247,7 +249,7 @@ async def get_group_name_async(group_id):
         return data.get("name")
     return None
 
-async def get_roblox_multi_group_role(member, interaction, group_id, sub_one, sub_two, sub_three):
+async def get_roblox_multi_group_role(member : discord.member, interaction : discord.Interaction, group_id : int, sub_one : int, sub_two : int, sub_three : int):
 
     try:
         group_role = await FetchRobloxGroupRole(member.id, group_id)
@@ -293,7 +295,7 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
 
     # ---------------- FETCH ROLE ----------------
     
-    group_role, subgroup_name = await get_roblox_multi_group_role(member=member, interaction=interaction, group_id=group_id, sub_one=sub_one, sub_two=sub_two, sub_three=sub_three)
+    group_role, subgroup_name = await get_roblox_multi_group_role(member, interaction, group_id, sub_one, sub_two, sub_three)
 
     # ---------------- HELPERS / CONFIG ----------------
     def normalize(name: str) -> str:
@@ -495,6 +497,7 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
 # Bot Class
 class C_Bot(commands.Bot):
     async def setup_hook(self):
+        keep_alive()
         await ensure_http_session()
 
         self.add_view(VerifyView())
@@ -506,8 +509,6 @@ class C_Bot(commands.Bot):
         except Exception as e:
             print(f"[ERROR] func = on_ready (1), Error: {e}")
         
-
-# keep_alive()
 # Create Bot
 Bot = C_Bot(command_prefix='/', intents=intents)
 
@@ -572,10 +573,7 @@ class StartVerificationButton(discord.ui.Button):
         try:
             ids = db.get_server_rules_ids(interaction.guild.id)
             if ids is None:
-                await interaction.response.send_message(
-                    "❌ This server is not set up yet.",
-                    ephemeral=True
-                )
+                log_error(interaction, "StartVerificationButton", 1, "Guild not configured")
                 return
 
             channel_id, message_id = ids
@@ -595,8 +593,9 @@ class StartVerificationButton(discord.ui.Button):
 
             # MODAL
             await interaction.response.send_modal(UsernameModal())
+
         except Exception as e:
-            await log_error(interaction, "StartVerificationButton", 1, e)
+            await log_error(interaction, "StartVerificationButton", 2, e)
 
 class CompleteVerificationButton(discord.ui.Button):
     def __init__(self):
@@ -614,7 +613,6 @@ class CompleteVerificationButton(discord.ui.Button):
             if not data:
                 await interaction.followup.send("❌ Start Verification first.", ephemeral=True)
                 return
-
             roblox_id, code, created_at = data
 
             # Expiry check (10 minutes = 600 seconds)
@@ -623,18 +621,15 @@ class CompleteVerificationButton(discord.ui.Button):
                 await interaction.followup.send("❌ Verification expired. Start again.", ephemeral=True)
                 return
             
+            config = db.get_guild_config(interaction.guild.id)
+            if not config:
+                log_error(interaction, "CompleteVerificationButton", 1, "Guild not configured")
+                return
+            channel_id, role_id, group_id, sub_one, sub_two, sub_three = config
+            
             description = await get_profile_description(roblox_id)
             if code not in description:
                 await interaction.followup.send("❌ Code not in bio.", ephemeral=True)
-                return
-            config = db.get_guild_config(interaction.guild.id)
-            if not config:
-                await interaction.followup.send("❌ Server not configured.", ephemeral=True)
-                return
-            channel_id, role_id, group_id, sub_one, sub_two, sub_three = config
-            rank = await get_group_rank(roblox_id, group_id)
-            if rank <= 0:
-                await interaction.followup.send("❌ Not in Roblox group.", ephemeral=True)
                 return
             
             try:
@@ -645,17 +640,17 @@ class CompleteVerificationButton(discord.ui.Button):
                         await interaction.user.add_roles(role) # adds verified role
 
                     db.save_verify(interaction.user.id, roblox_id)  
-
                     db.delete_pending(interaction.user.id)
+
                     await interaction.followup.send("✅ Verified!", ephemeral=True)
                 else:
                     await interaction.followup.send("❌ Error with Verification.", ephemeral=True)
                     return
             except Exception as e:
-                await log_error(interaction, "CompleteVerificationButton", 1, e)
+                await log_error(interaction, "CompleteVerificationButton", 2, e)
 
         except Exception as e:
-            await log_error(interaction, "CompleteVerificationButton", 2, e)
+            await log_error(interaction, "CompleteVerificationButton", 3, e)
         
         
 
@@ -675,9 +670,10 @@ class UpdateButton(discord.ui.Button):
             if data is None:
                 await interaction.followup.send("❌ Your account is not verified.", ephemeral=True)
                 return
+            
             config = db.get_guild_config(interaction.guild.id)
             if not config:
-                await interaction.followup.send("❌ Server not configured.", ephemeral=True)
+                log_error(interaction, "UpdateButton", 1, "Guild not configured")
                 return
             channel_id, role_id, group_id, sub_one, sub_two, sub_three = config
 
@@ -769,7 +765,7 @@ async def setup_config(interaction : discord.Interaction, role : discord.Role,  
 # /setup_embeds
 @Bot.tree.command(name="setup-embeds", description="Sets up the Server rules embed and the verification emded (Use in #Verification).")
 @app_commands.checks.has_permissions(administrator=True)
-async def setup_embeds(interaction : discord.Interaction, server_rules_channel_id : str):
+async def setup_embeds(interaction : discord.Interaction, server_rules_channel_id : str, server_rules_message_id : str | None):
     await interaction.response.defer(ephemeral=True)
 
     await interaction.followup.send("Setting up embeds...", ephemeral=True)
@@ -785,25 +781,46 @@ async def setup_embeds(interaction : discord.Interaction, server_rules_channel_i
         return
 
     try:
-        # Send rules embed
-        await server_rules_channel.send("# __**Server Rules:**__")
-        msg = await server_rules_channel.send(embed=create_server_rules_embed())
-        await msg.add_reaction('✅')
+        
+        msg = None
+
+        if server_rules_message_id == None:
+            # The embeds do not exist and need to be created
+            
+            # Send rules embed
+            await server_rules_channel.send("# __**Server Rules:**__")
+            msg = await server_rules_channel.send(embed=create_server_rules_embed())
+            await msg.add_reaction('✅')
+
+            # Send verification embed
+            await interaction.channel.send(f"# __**Welcome to the {interaction.guild.name} Discord Server!**__")
+            await interaction.channel.send(embed=create_verification_embed(),view=VerifyView())
+
+            # Final response
+            await interaction.followup.send("✅ Setup complete.", ephemeral=True)
+        else:
+            # The embeds do exist and the info from them only needs to be saved
+
+            # validate server_rules_message_id
+            try:
+                msg = await server_rules_channel.fetch_message(int(server_rules_message_id))
+            except discord.NotFound:
+                await interaction.followup.send("❌ Invalid message ID.")
+                return
+            except discord.Forbidden:
+                await log_error(interaction, "setup_embeds", 1, "Missing Read Message History permission")
+                return
+            except Exception as e:
+                await log_error(interaction, "setup_embeds", 2, e)
+                return
+
+        if msg == None:
+            return
 
         db.save_server_rules_ids(interaction.guild.id, server_rules_channel.id, msg.id)
 
-        # Send verification embed
-        await interaction.channel.send(f"# __**Welcome to the {interaction.guild.name} Discord Server!**__")
-        await interaction.channel.send(
-            embed=create_verification_embed(),
-            view=VerifyView()
-        )
-
-        # Final response
-        await interaction.followup.send("✅ Setup complete.", ephemeral=True)
-
     except Exception as e:
-        await log_error(interaction, "setup_embeds", 1, e)
+        await log_error(interaction, "setup_embeds", 3, e)
         return
 
 # ------------------------------ MAIN ------------------------------
