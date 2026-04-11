@@ -821,3 +821,4 @@ except Exception as e:
     print(f"[FATAL] Bot crashed. Error Msg: {e}")
 finally:
     atexit.register(shutdown)
+    time.sleep(120) # Prevent restart spam, 2 minute cooldown on restart
