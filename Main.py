@@ -41,23 +41,14 @@ load_dotenv()
 
 # Get .Env Variables
 discord_token = os.getenv('DISCORD_TOKEN')
-if not discord_token:
-    raise ValueError("DISCORD_TOKEN not found in .env")
-else:
-    print(f"[SETUP] discord_token Loaded.")
-
+print(f"[SETUP] discord_token: {bool(discord_token)}")
 main_guild_id = os.getenv('MAIN_GUILD_ID')
-if not main_guild_id:
-    raise ValueError("MAIN_GUILD_ID not found in .env")
-else:
-    main_guild_id = int(main_guild_id)
-    print(f"[SETUP] main_guild_id Loaded.")
-
+print(f"[SETUP] main_guild_id: {bool(main_guild_id)}")
 
 print(f"[SETUP] Loaded all .env variables.")
 
 # ------------------------------ FLASK KEEP ALIVE ------------------------------
-
+'''
 app = Flask(__name__)
 
 @app.route("/")
@@ -71,7 +62,7 @@ def run_flask():
 def keep_alive():
     t = Thread(target=run_flask, daemon=True)
     t.start()
-
+'''
 # ------------------------------ LOGGING ------------------------------
 
 handler = logging.FileHandler(filename='discord_bot.log', encoding='utf-8', mode='w')
@@ -512,10 +503,11 @@ class C_Bot(commands.Bot):
 
     async def on_ready(self):
         await self.tree.sync()
-        print(f"[SETUP] Bot Online: {self.user}")
+        print(f"[SETUP] Complete - Bot Online: {self.user}")
         
+
+# keep_alive()
 # Create Bot
-keep_alive()
 Bot = C_Bot(command_prefix='/', intents=intents)
 
 # ------------------------------ MODAL ------------------------------
@@ -825,6 +817,9 @@ def shutdown():
 
 db.init_database()
 try:
+    print("[SETUP] Starting bot...")
     Bot.run(discord_token, reconnect=True, log_handler=handler, log_level=logging.DEBUG)
+except Exception as e:
+    print(f"[FATAL] Bot crashed. Error Msg: {e}")
 finally:
     atexit.register(shutdown)
