@@ -18,8 +18,6 @@ from discord.ext import commands
 
 import logging
 from dotenv import load_dotenv
-from threading import Thread
-from flask import Flask
 import os
 import aiohttp
 import random
