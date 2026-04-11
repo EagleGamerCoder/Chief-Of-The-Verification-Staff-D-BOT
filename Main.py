@@ -40,7 +40,7 @@ load_dotenv()
 # Get .Env Variables
 discord_token = os.getenv('DISCORD_TOKEN')
 print(f"[SETUP] discord_token: {bool(discord_token)}")
-main_guild_id = os.getenv('MAIN_GUILD_ID')
+main_guild_id = int(os.getenv('MAIN_GUILD_ID'))
 print(f"[SETUP] main_guild_id: {bool(main_guild_id)}")
 
 print(f"[SETUP] Loaded all .env variables.")
@@ -500,8 +500,11 @@ class C_Bot(commands.Bot):
         self.add_view(VerifyView())
 
     async def on_ready(self):
-        await self.tree.sync()
-        print(f"[SETUP] Complete - Bot Online: {self.user}")
+        try:
+            await self.tree.sync()
+            print(f"[SETUP] Complete - Bot Online: {self.user}")
+        except Exception as e:
+            print(f"[ERROR] func = on_ready (1), Error: {e}")
         
 
 # keep_alive()
@@ -814,11 +817,15 @@ def shutdown():
     asyncio.run(close_session())
 
 db.init_database()
+
 try:
     print("[SETUP] Starting bot...")
     Bot.run(discord_token, reconnect=True, log_handler=handler, log_level=logging.DEBUG)
+
 except Exception as e:
     print(f"[FATAL] Bot crashed. Error Msg: {e}")
-finally:
-    atexit.register(shutdown)
-    time.sleep(120) # Prevent restart spam, 2 minute cooldown on restart
+
+    # Prevent restart spam 
+    while True:
+        print("[FATAL] Sleeping to avoid rate limit...")
+        time.sleep(300)  # 5 minutes
