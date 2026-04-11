@@ -2,22 +2,49 @@
 
 Chief-Of-The-Verification-Staff
 
+V 0.1
+
 A Discord Bot that creates a built-in embed to verify, update users roles and present server rules in the Calderian Army Discord Servers
 
 
-Discord Command List:
+ ---------- Discord Command List:
 /setup_embeds
 /setup_config
 
 
-Class list:
+ ---------- Event Function List:
+on_raw_reaction_add(payload)
+on_app_commmand_error(interaction, error)
+
+
+ ---------- Class list:
 C_Bot(commands.Bot)
 UsernameModal(discord.ui.Modal, title="Enter Roblox Username")
 StartVerificationButton(discord.ui.Button)
+CompleteVerificationButton(discord.ui.Button)
+UpdateButton(discord.ui.Button)
+VerifyView(discord.ui.View)
 
-
-Function list:
-
+ ---------- Function list:
+.start_webserver()
+.log_error(interaction, func, code, e)
+.ensure_http_session()
+.generate_code_six()
+.get_roblox_id(username)
+.get_profile_description(user_id)
+.get_group_rank(user_id, group_id)
+.get_roblox_username(roblox_user_id)
+.fetch_group_data(group_id)
+.remove_leading_bracket(string)
+.FetchRobloxGroupRole(discord_user_id, group_id)
+.set_prefix_nickname(member, role_name)
+.get_group_name_async(group_id)
+.get_roblox_multi_group_role(member, interaction, group_id, sub_one, sub_two, sub_three)
+.sync_discord_roles(member, interaction, group_id, sub_one, sub_two, sub_three)
+.create_verification_embed()
+.create_server_rules_embed()
+.close_session()
+.shutdown()
 
 '''
 
@@ -38,7 +65,7 @@ import re
 import asyncio
 import time
 
-# Other files
+# Files
 import db
 
 # ------------------------------ .ENV ------------------------------
@@ -180,7 +207,7 @@ async def get_group_rank(user_id, group_id):
                 return group["role"]["rank"]
     return 0
 
-async def get_roblox_username(roblox_user_id : int):
+async def get_roblox_username(roblox_user_id):
     await ensure_http_session()
     async with http_session.get(f"https://users.roblox.com/v1/users/{roblox_user_id}", timeout=10) as response:
         try:
