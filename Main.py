@@ -16,13 +16,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from flask import Flask
-from threading import Thread
-
 import logging
 from dotenv import load_dotenv
 import os
 import aiohttp
+from aiohttp import web
 import random
 import string
 import re
@@ -46,7 +44,7 @@ main_guild_id = int(os.getenv('MAIN_GUILD_ID'))
 print(f"[SETUP] main_guild_id: {bool(main_guild_id)}")
 
 print(f"[SETUP] Loaded all .env variables.")
-
+'''
 # ------------------------------ FLASK KEEP ALIVE ------------------------------
 
 app = Flask(__name__)
@@ -62,6 +60,27 @@ def run_flask():
 def keep_alive():
     t = Thread(target=run_flask, daemon=True)
     t.start()
+'''
+
+# ------------------------------ RENDER WEB HOST CONNECTION ------------------------------
+
+# Yeah ggs I have no clue what this does - credit ChatGPT
+async def start_webserver():
+    app = web.Application()
+
+    async def handle(request):
+        return web.Response(text="COTVS is operational...")
+    
+    app.router.add_get("/", handle)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0"), port
+
+    await site.start()
+    print(f"[SETUP] Webserver running on port: {port}")
 
 # ------------------------------ LOGGING ------------------------------
 
@@ -497,7 +516,8 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
 # Bot Class
 class C_Bot(commands.Bot):
     async def setup_hook(self):
-        keep_alive()
+
+        await start_webserver()
         await ensure_http_session()
 
         self.add_view(VerifyView())
@@ -505,7 +525,7 @@ class C_Bot(commands.Bot):
     async def on_ready(self):
         try:
             await self.tree.sync()
-            print(f"[SETUP] Complete - Bot Online: {self.user}")
+            print(f"[SETUP] COMPLETE - Bot Online: {self.user}")
         except Exception as e:
             print(f"[ERROR] func = on_ready (1), Error: {e}")
         
