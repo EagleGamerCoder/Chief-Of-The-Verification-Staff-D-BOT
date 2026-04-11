@@ -453,6 +453,8 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
             await member.send(f"You have been ranked in 'Calderian Army' to the '**{role.name}**' rank.")
         except discord.Forbidden:
             pass
+
+        return 1
     
     # ---------------- WHEN USER HAS NO ROBLOX GROUP ROLE ----------------
     else:
@@ -488,6 +490,8 @@ async def sync_discord_roles(member: discord.Member, interaction: discord.Intera
             )
         except discord.Forbidden:
             pass
+
+        return 1
 
 
 # ------------------------------ BOT ------------------------------
@@ -630,19 +634,24 @@ class CompleteVerificationButton(discord.ui.Button):
             return
         
         try:
-            await sync_discord_roles(interaction.user, interaction, int(group_id), int(sub_one), int(sub_two), int(sub_three))
+            result = await sync_discord_roles(interaction.user, interaction, int(group_id), int(sub_one), int(sub_two), int(sub_three))
+            if result == 1:
+                role = interaction.guild.get_role(role_id)
+                if role:
+                    await interaction.user.add_roles(role) # adds verified role
+
+                db.save_verify(interaction.user.id, roblox_id)  
+
+                db.delete_pending(interaction.user.id)
+                await interaction.followup.send("✅ Verified!", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Error with Verification.", ephemeral=True)
+                return
         except Exception as e:
             await interaction.followup.send(f"An error occurred while updating your roles: {e}")
             return
         
-        role = interaction.guild.get_role(role_id)
-        if role:
-            await interaction.user.add_roles(role) # adds verified role
-
-        db.save_verify(interaction.user.id, roblox_id)  
-
-        db.delete_pending(interaction.user.id)
-        await interaction.followup.send("✅ Verified!", ephemeral=True)
+        
 
 class UpdateButton(discord.ui.Button):
     def __init__(self):
@@ -666,12 +675,16 @@ class UpdateButton(discord.ui.Button):
         channel_id, role_id, group_id, sub_one, sub_two, sub_three = config
 
         try:
-            await sync_discord_roles(interaction.user, interaction, int(group_id), int(sub_one), int(sub_two), int(sub_three))
+            result = await sync_discord_roles(interaction.user, interaction, int(group_id), int(sub_one), int(sub_two), int(sub_three))
+            if result == 1:
+                await interaction.followup.send("✅ Roles updated!", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Roles not updated.", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"An error occurred while updating your roles: {e}", ephemeral=True)
             return
         
-        await interaction.followup.send("✅ Roles updated!", ephemeral=True)
+        
 
 
 class VerifyView(discord.ui.View):
